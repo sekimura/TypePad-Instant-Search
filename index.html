@@ -1,0 +1,264 @@
+<!doctype>
+<html>
+<head>
+<link rel="stylesheet" href="jquery-ui.css" type="text/css" media="screen">
+<style>
+html {
+    font-family: 'Helvetica Neue', Arial, 'Liberation Sans', FreeSans, sans-serif;
+    /*
+    background: #5187B9;
+    */
+}
+#searchform {
+    width: 600px;
+    margin: 0 auto;
+}
+#searchform input {
+    width: 100%;
+    font-size: 1.5em;
+    padding: 0.3em;
+    margin: 10px auto;
+}
+#result-header {
+    width: 920px;
+    margin: 0 auto;
+}
+#result {
+    width: 920px;
+    margin: 10px auto;
+}
+#result ol {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+}
+#result ol li{
+    margin-bottom: 10px;
+    padding: 5px 10px;
+    border: solid 1px #ccc;
+    border-bottom-left-radius: 5px 5px;
+    border-bottom-right-radius: 5px 5px;
+    border-top-left-radius: 5px 5px;
+    border-top-right-radius: 5px 5px;
+}
+#result ol li .author {
+    position:relative;
+    left: -55px;
+}
+#result ol li .entry-content {
+    position:relative;
+    top: -50px;
+}
+img.embedded {
+    margin: 2px;
+}
+#result ol li .author img.avatar {
+    border-bottom-left-radius: 5px 5px;
+    border-bottom-right-radius: 5px 5px;
+    border-top-left-radius: 5px 5px;
+    border-top-right-radius: 5px 5px;
+}
+#footer {
+    text-align: right;
+    background: #fff;
+    color: #999;
+}
+#header h1{
+    padding: auto 10px;
+}
+#wrapper {
+    background: #fff;
+    color: #333;
+    width: 90%;
+    margin: 0 auto;
+}
+.translucent {
+    opacity: 0.5;
+}
+</style>
+</head>
+<body>
+<div id="wrapper">
+    <div id="header"><h1>TypePad Instant Search</h1></div>
+    <div id="content">
+        <div id="searchform">
+            <form action="#search" id="search" onsubmit="javascript: return false">
+                <input id="sin" type="text" name="q" >
+            </form>
+        </div>
+        <div id="result-header">
+            <div id="keyword"></div>
+        </div>
+        <div id="src" style="display: none"></div>
+        <div id="result"></div>
+    </div>
+    <div id="footer">
+    <p><a href="http://labs.qootas.org/tpinstant/">TypePad Instant Search</a> is created by <a href="http://profile.typepad.com/sekimura">Masayoshi Sekimura</a></p>
+    <p>Powered by: Awesome <a href="http://developer.typepad.com/">TypePad JSON API</a>, sexy <a href="http://jquery.com/">jQuery</a>, powerful <a href="http://jqueryui.com/">jQuery UI</a> and hidden <a href="http://www.google.com">Google</a> suggest API </p>
+    </div>
+</div>
+<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<script src="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.5/jquery-ui.min.js"></script>
+<script src="http://github.com/janl/mustache.js/raw/0.3.0/mustache.js"></script>
+<script>
+var apiUrl = 'http://api.typepad.com/assets.json?max-results=20&q={term}'; /* not phrase search, for now */
+
+/* proxy for "http://google.com/complete/search?output=firefox&qu=perl"; */
+var sg = "/gcs?output=firefox&qu=";
+var tpApiLoading = false;
+
+function updateResults(term) {
+    if (tpApiLoading) return;
+
+    location.hash = "#" + encodeURI(term);
+    $("#keyword").html('"<b><span id="k">' + term + '</span></b>" results');
+
+    //reset;
+    if ($("#result").html()) {
+        $("#result").addClass('translucent');
+    } else {
+        $('<ol/>').html('<p>loading...</p>').appendTo("#result");
+    }
+
+    tpApiLoading = true;
+    $.ajax({
+        url: apiUrl.replace('{term}', term),
+        success: function(msg) {
+            tpApiLoading = false;
+            $("#result ol").html('');
+            $("#result").removeClass('translucent');
+
+            if (!msg.entries && msg.entries.length) {
+                $("#result ol").html('Failed');
+                return;
+            }
+
+            $("#keyword").append(" (" + msg.estimatedTotalResults + "+)");
+            $.each(msg.entries, function(i, item) {
+                var excerpt = item.excerpt ? item.excerpt.substring(0, 1000) :
+                    item.body ? item.body.substring(0, 1000) : '';
+                var images = [];
+                var image_num = 0;
+                if (item.embeddedImageLinks) {
+                    image_num = item.embeddedImageLinks.length < 5 ? item.embeddedImageLinks.length : 5;
+                    for (var i=0; i < image_num; i++) {
+                        var link = item.embeddedImageLinks[i];
+                        if (link.urlTemplate) {
+                            images.push(link.urlTemplate.replace("{spec}", "75si"));
+                        } else {
+                            images.push(link.url);
+                        }
+                    }
+                }
+                var avatar;
+                var link = item.author.avatarLink;
+                if (link) {
+                    if (link.urlTemplate) {
+                        avatar = link.urlTemplate.replace('{spec}', "50si");
+                    } else {
+                        avatar = link.url;
+                    }
+                }
+                var stash = {
+                    authorAvatar: avatar,
+                    title: item.title,
+                    excerpt: excerpt,
+                    url: item.permalinkUrl,
+                    homeUrl: item.container.homeUrl,
+                    images: images
+                };
+                var template = [
+                    '<li class="entry">',
+                    '<div class="author"><img class="avatar" src={{ authorAvatar }} width="50" height="50"></div>',
+                    '<div class="entry-content">',
+                      '<h3 class="title"><a href="{{ url }}">{{ title }}</a></h3>',
+                      '<div class="excerpt">{{ excerpt }}</div>',
+                      '<div class="images"><a href="{{ url }}">{{#images}}<img class="embedded" src="{{.}}" width="75" height="75">{{/images}}</a></div>',
+                      '<div class="homeurl"><a href="{{ homeUrl }}">{{ homeUrl }}</a></div>',
+                    '</div></li>',
+                ''].join('');
+                var entry = $(Mustache.to_html(template, stash));
+                entry.appendTo("#result ol");
+            });
+        }
+    });
+
+}
+$(document).ready(function() {
+    var hash = decodeURI(location.hash.toString());
+    hash = hash.replace('#', '');
+    if (hash) {
+        $('#sin').val(hash);
+        updateResults(hash);
+    }
+    $("#sin").keydown(function(evt) {
+        if (evt.keyCode === 13) {
+            tpApiLoading = false;
+            var t = $(evt.target);
+            if (t.val() !== $("#k").text()) {
+                updateResults(t.val());
+            }
+            $("#sin").autocomplete("close");
+        } else if (evt.keyCode === 9) {
+            if ($("#src").text()) {
+                var srcs = ($("#src").text().split("\t"))[0];
+                $("#sin").val(srcs).focus();
+                if ($("#sin").val() !== $("#k").text()) {
+                    updateResults(srcs);
+                } else {
+                    return false;
+                }
+            }
+            return false;
+        }
+    });
+    $("#sin").autocomplete({
+        select: function(evt, ui) {
+            if (ui.item.value !== $("#k").text()) {
+                updateResults(ui.item.value);
+            }
+        },
+        source: function(req, responseFn){
+            $.ajax({
+                url: sg + req.term,
+                success: function(msg) {
+                    var res;
+                    try {
+                       res = eval(msg);
+                    } catch (err) {
+                        /* console.log(err) */
+                    }
+
+                    if (typeof res === 'undefined' || typeof res !== 'object') return;
+
+                    $("#src").text(res[1].join("\t"));
+                    responseFn(res[1]);
+                    var keyword = res[1][0] ? res[1][0] : res[0];
+                    if (keyword !== $("#k").text())
+                        updateResults(keyword);
+                }
+            });
+        }
+    });
+    $("#search").submit(function() {
+        if ($("#sin").val() !== $("#k").text()){
+            updateResults($("#sin").val());
+        }
+    });
+});
+</script>
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-100187-5']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
+</body>
+</html>
